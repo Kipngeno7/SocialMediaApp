@@ -1,333 +1,447 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  Alert,
+  Image,
   ScrollView,
-  Animated,
+  Alert,
+  Modal,
+  FlatList,
+  StyleSheet,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
+import { Audio } from "expo-av";
+import { CATEGORIES } from "../../constants/categories";
+import { usePosts } from "../../context/PostsContext";
 
-/* CATEGORY SETTINGS */
-const categories = {
-  Political: {
-    color: "#FF3B30",
-    description: "Government, policies, civic discussions",
-  },
-  Health: {
-    color: "#34C759",
-    description: "Medical, wellness, public health",
-  },
-  Educational: {
-    color: "#007AFF",
-    description: "Knowledge, learning, philosophy",
-  },
-  Sports: {
-    color: "#FF9500",
-    description: "Sports events and activities",
-  },
-  Religious: {
-    color: "#AF52DE",
-    description: "Faith and spiritual content",
-  },
-  Entertainment: {
-    color: "#FF2D55",
-    description: "Music, movies, fun content",
-  },
-  Personal: {
-    color: "#5AC8FA",
-    description: "Personal life and updates",
-  },
-  PublicInfo: {
-    color: "#FFD60A",
-    description: "Important public announcements",
-  },
-  Development: {
-    color: "#30D158",
-    description: "Socioeconomic and development matters",
-  },
-  Other: {
-    color: "#8E8E93",
-    description: "Any content outside listed categories",
-  },
+// Placeholder user profile
+const USER = {
+  name: "John Doe",
+  avatar: "https://i.pravatar.cc/150?img=3",
 };
 
-export default function CreatePost() {
-  const [selectedCategory, setSelectedCategory] = useState("");
-  const [content, setContent] = useState("");
-  const [otherSpecification, setOtherSpecification] = useState("");
-  const [location, setLocation] = useState("");
+export default function CreatePostScreen() {
+  const { addPost } = usePosts();
+
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [customCategory, setCustomCategory] = useState("");
+  const [postText, setPostText] = useState("");
   const [hashtags, setHashtags] = useState("");
-  const [visibility, setVisibility] = useState("Public");
-  const [showPreview, setShowPreview] = useState(false);
+  const [mediaUris, setMediaUris] = useState<string[]>([]);
+  const [audioUri, setAudioUri] = useState<string | null>(null);
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [location, setLocation] = useState("");
+  const [visibility, setVisibility] = useState<"public" | "followers" | "private">("public");
+  const [draft, setDraft] = useState<any>(null);
+  const [previewVisible, setPreviewVisible] = useState(false);
 
-  const fadeAnim = useState(new Animated.Value(0))[0];
+  const CHARACTER_LIMIT = 280;
 
-  /* CATEGORY SELECTION */
-  const selectCategory = (cat: string) => {
-    setSelectedCategory(cat);
+  // Restore draft
+  useEffect(() => {
+    if (draft) {
+      setPostText(draft.postText);
+      setSelectedCategory(draft.selectedCategory);
+      setCustomCategory(draft.customCategory);
+      setMediaUris(draft.mediaUris);
+      setAudioUri(draft.audioUri);
+      setHashtags(draft.hashtags);
+      setLocation(draft.location);
+      setVisibility(draft.visibility);
+    }
+  }, [draft]);
 
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 400,
-      useNativeDriver: true,
-    }).start();
+  // Pick IMAGE
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 1,
+    });
+
+    if (!result.canceled) {
+      setMediaUris([...mediaUris, result.assets[0].uri]);
+    }
   };
 
-  /* VALIDATION RULES */
-  const validatePost = () => {
-    if (!selectedCategory) {
-      Alert.alert("Select Category");
-      return false;
-    }
+  // Pick VIDEO
+  const pickVideo = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      quality: 1,
+    });
 
-    if (selectedCategory === "Other" && !otherSpecification.trim()) {
-      Alert.alert("Specify Other Category");
-      return false;
+    if (!result.canceled) {
+      setMediaUris([...mediaUris, result.assets[0].uri]);
     }
-
-    if (!content.trim()) {
-      Alert.alert("Post cannot be empty");
-      return false;
-    }
-
-    return true;
   };
 
-  /* SAVE DRAFT */
+  // GO LIVE
+  const handleGoLive = () => {
+    const livePlaceholder =
+      "https://via.placeholder.com/300x200.png?text=LIVE+STREAM";
+
+    addPost({
+      text: postText || "🔴 LIVE NOW",
+      category: selectedCategory,
+      otherCategoryText: selectedCategory === "others" ? customCategory : "",
+      mediaUris: [livePlaceholder],
+      audioUri: null,
+      hashtags,
+      location,
+      visibility,
+      user: USER,
+      liveStartTime: Date.now(),
+    });
+
+    Alert.alert("LIVE started!");
+  };
+
+  // AUDIO RECORD
+  const startRecording = async () => {
+    const { status } = await Audio.requestPermissionsAsync();
+    if (status !== "granted") return;
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+    });
+
+    const rec = new Audio.Recording();
+    await rec.prepareToRecordAsync(Audio.RECORDING_OPTIONS_PRESET_HIGH_QUALITY);
+    await rec.startAsync();
+    setRecording(rec);
+  };
+
+  const stopRecording = async () => {
+    if (!recording) return;
+
+    await recording.stopAndUnloadAsync();
+    setAudioUri(recording.getURI());
+    setRecording(null);
+  };
+
+  // Save draft
   const saveDraft = () => {
-    Alert.alert("Draft Saved (Temporary Frontend Draft)");
+    setDraft({
+      postText,
+      selectedCategory,
+      customCategory,
+      mediaUris,
+      audioUri,
+      hashtags,
+      location,
+      visibility,
+    });
+    Alert.alert("Draft saved!");
   };
 
-  /* CONFIRM POST */
+  // Submit post
   const submitPost = () => {
-    if (!validatePost()) return;
+    if (!postText && mediaUris.length === 0 && !audioUri) {
+      Alert.alert("Post cannot be empty!");
+      return;
+    }
 
-    Alert.alert("Post Published Successfully");
+    addPost({
+      text: postText,
+      category: selectedCategory,
+      otherCategoryText: selectedCategory === "others" ? customCategory : "",
+      mediaUris,
+      audioUri,
+      hashtags,
+      location,
+      visibility,
+      user: USER,
+    });
 
-    setContent("");
-    setSelectedCategory("");
-    setOtherSpecification("");
+    setPostText("");
+    setSelectedCategory(null);
+    setCustomCategory("");
+    setMediaUris([]);
+    setAudioUri(null);
+    setHashtags("");
+    setLocation("");
+    setVisibility("public");
+
+    Alert.alert("Post submitted!");
   };
 
   return (
     <ScrollView style={styles.container}>
-      
-      {/* USER INFO PLACEHOLDER */}
-      <Text style={styles.userInfo}>Posting as Dennis</Text>
+      {/* USER */}
+      <View style={styles.userRow}>
+        <Image source={{ uri: USER.avatar }} style={styles.avatar} />
+        <Text style={styles.userName}>{USER.name}</Text>
+      </View>
 
-      <Text style={styles.title}>Create New Post</Text>
-
-      {/* CATEGORY SELECTION */}
-      <Text style={styles.label}>Select Category *</Text>
-
-      <View style={styles.categoryContainer}>
-        {Object.keys(categories).map((cat) => (
+      {/* CATEGORY */}
+      <Text style={styles.sectionTitle}>Select Category:</Text>
+      <View style={styles.categoriesRow}>
+        {Object.keys(CATEGORIES).map((key) => (
           <TouchableOpacity
-            key={cat}
-            accessibilityLabel={`Select ${cat} category`}
+            key={key}
+            onPress={() => setSelectedCategory(key)}
             style={[
               styles.categoryButton,
               {
                 backgroundColor:
-                  selectedCategory === cat
-                    ? categories[cat].color
-                    : "#E5E5EA",
+                  selectedCategory === key ? CATEGORIES[key].color : "#ddd",
               },
             ]}
-            onPress={() => selectCategory(cat)}
           >
-            <Text
-              style={{
-                color: selectedCategory === cat ? "white" : "black",
-              }}
-            >
-              {cat}
+            <Text style={{ color: "#fff", fontSize: 12 }}>
+              {CATEGORIES[key].label}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* TOOLTIP */}
-      {selectedCategory ? (
-        <Animated.Text
-          style={{
-            opacity: fadeAnim,
-            color: categories[selectedCategory].color,
-            marginBottom: 10,
-          }}
-        >
-          {categories[selectedCategory].description}
-        </Animated.Text>
-      ) : null}
-
-      {/* OTHER CATEGORY SPECIFICATION */}
-      {selectedCategory === "Other" && (
+      {selectedCategory === "others" && (
         <TextInput
-          placeholder="Specify type of post"
+          placeholder="Specify category"
+          value={customCategory}
+          onChangeText={setCustomCategory}
           style={styles.input}
-          value={otherSpecification}
-          onChangeText={setOtherSpecification}
         />
       )}
 
-      {/* POST CONTENT */}
-      <Text style={styles.label}>Write Post</Text>
-
+      {/* POST TEXT */}
       <TextInput
-        style={styles.input}
+        placeholder="Write your post..."
+        value={postText}
+        onChangeText={setPostText}
         multiline
-        value={content}
-        onChangeText={setContent}
-        placeholder="What's on your mind?"
+        maxLength={CHARACTER_LIMIT}
+        style={[styles.input, { minHeight: 100 }]}
       />
 
-      {/* CHARACTER COUNTER */}
-      <Text>{content.length}/500</Text>
-
-      {/* LOCATION */}
-      <TextInput
-        placeholder="Add Location"
-        style={styles.input}
-        value={location}
-        onChangeText={setLocation}
-      />
+      <Text style={styles.characterCount}>
+        {postText.length}/{CHARACTER_LIMIT}
+      </Text>
 
       {/* HASHTAGS */}
       <TextInput
-        placeholder="Add Hashtags (#example)"
-        style={styles.input}
+        placeholder="Hashtags"
         value={hashtags}
         onChangeText={setHashtags}
+        style={styles.input}
       />
 
-      {/* VISIBILITY SETTINGS */}
-      <Text style={styles.label}>Visibility</Text>
+      {/* LOCATION */}
+      <TextInput
+        placeholder="Location"
+        value={location}
+        onChangeText={setLocation}
+        style={styles.input}
+      />
 
+      {/* MEDIA PREVIEW */}
+      {mediaUris.map((uri) => (
+        <Image key={uri} source={{ uri }} style={styles.mediaPreview} />
+      ))}
+
+      {audioUri && <Text>Audio recorded</Text>}
+
+      {/* MEDIA + ACTION BUTTON ROW */}
+      <View style={styles.buttonsRow}>
+        {/* MEDIA BUTTONS */}
+        <View style={styles.mediaColumn}>
+          <TouchableOpacity onPress={handleGoLive} style={styles.liveButton}>
+            <Text style={styles.buttonText}>🔴 Go Live</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={pickImage} style={styles.button}>
+            <Text style={styles.buttonText}>🖼 Pick Image</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={pickVideo} style={styles.button}>
+            <Text style={styles.buttonText}>🎥 Pick Video</Text>
+          </TouchableOpacity>
+
+          {!recording ? (
+            <TouchableOpacity onPress={startRecording} style={styles.button}>
+              <Text style={styles.buttonText}>🎤 Start Audio</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity onPress={stopRecording} style={styles.button}>
+              <Text style={styles.buttonText}>⏹ Stop Audio</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* ACTION BUTTONS */}
+        <View style={styles.actionColumn}>
+          <TouchableOpacity onPress={saveDraft} style={styles.submitButton}>
+            <Text style={styles.submitText}>Save Draft</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setPreviewVisible(true)}
+            style={styles.submitButton}
+          >
+            <Text style={styles.submitText}>Preview</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={submitPost} style={styles.submitButtonBlue}>
+            <Text style={styles.submitTextBlue}>Submit Post</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* VISIBILITY */}
+      <Text style={styles.sectionTitle}>Visibility</Text>
       <View style={styles.visibilityRow}>
-        {["Public", "Followers", "Private"].map((v) => (
+        {["public", "followers", "private"].map((v) => (
           <TouchableOpacity
             key={v}
+            onPress={() => setVisibility(v as any)}
             style={[
               styles.visibilityButton,
-              visibility === v && styles.visibilitySelected,
+              { backgroundColor: visibility === v ? "#4a90e2" : "#ccc" },
             ]}
-            onPress={() => setVisibility(v)}
           >
-            <Text>{v}</Text>
+            <Text style={{ color: "#fff" }}>{v.toUpperCase()}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* PREVIEW BUTTON */}
-      <TouchableOpacity
-        style={styles.previewButton}
-        onPress={() => setShowPreview(!showPreview)}
-      >
-        <Text style={{ color: "white" }}>Preview</Text>
-      </TouchableOpacity>
+      {/* PREVIEW MODAL */}
+      <Modal visible={previewVisible} animationType="slide">
+        <ScrollView style={styles.container}>
+          <Text style={styles.sectionTitle}>Post Preview</Text>
 
-      {/* PREVIEW PANEL */}
-      {showPreview && (
-        <View style={styles.previewBox}>
-          <Text>Category: {selectedCategory}</Text>
-          {selectedCategory === "Other" && (
-            <Text>Specified: {otherSpecification}</Text>
-          )}
-          <Text>{content}</Text>
-          <Text>Location: {location}</Text>
-          <Text>Hashtags: {hashtags}</Text>
-          <Text>Visibility: {visibility}</Text>
-        </View>
-      )}
+          <Text>{postText}</Text>
 
-      {/* DRAFT */}
-      <TouchableOpacity style={styles.draftButton} onPress={saveDraft}>
-        <Text style={{ color: "white" }}>Save Draft</Text>
-      </TouchableOpacity>
+          <FlatList
+            data={mediaUris}
+            horizontal
+            keyExtractor={(i) => i}
+            renderItem={({ item }) => (
+              <Image source={{ uri: item }} style={styles.mediaPreview} />
+            )}
+          />
 
-      {/* POST */}
-      <TouchableOpacity style={styles.postButton} onPress={submitPost}>
-        <Text style={{ color: "white" }}>POST</Text>
-      </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setPreviewVisible(false)}
+            style={styles.submitButton}
+          >
+            <Text style={styles.submitText}>Close Preview</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </Modal>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 15,
-    backgroundColor: "#F2F2F7",
+  container: { flex: 1, padding: 16 },
+
+  userRow: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
+  avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 8 },
+  userName: { fontWeight: "bold" },
+
+  sectionTitle: { fontWeight: "bold", marginVertical: 8 },
+
+  categoriesRow: { flexDirection: "row", flexWrap: "wrap" },
+  categoryButton: {
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    margin: 3,
+    borderRadius: 5,
   },
-  userInfo: {
-    fontWeight: "bold",
-    marginBottom: 10,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    marginBottom: 15,
-  },
-  label: {
-    fontWeight: "600",
+
+  input: {
+    borderWidth: 1,
+    borderColor: "#ccc",
+    padding: 8,
+    borderRadius: 6,
     marginBottom: 8,
   },
-  categoryContainer: {
+
+  characterCount: {
+    textAlign: "right",
+    color: "#555",
+  },
+
+  mediaPreview: {
+    width: 100,
+    height: 100,
+    marginBottom: 8,
+    borderRadius: 6,
+  },
+
+  buttonsRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    marginBottom: 15,
+    justifyContent: "space-between",
   },
-  categoryButton: {
-    padding: 8,
-    borderRadius: 20,
-    margin: 4,
+
+  mediaColumn: {
+    alignItems: "flex-start",
+    marginVertical: 10,
   },
-  input: {
-    backgroundColor: "white",
-    borderRadius: 10,
+
+  actionColumn: {
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    marginVertical: 10,
+  },
+
+  button: {
+    backgroundColor: "#4a90e2",
     padding: 10,
-    marginBottom: 15,
+    borderRadius: 6,
+    marginBottom: 8,
+    width: 160,
   },
+
+  liveButton: {
+    backgroundColor: "red",
+    padding: 10,
+    borderRadius: 6,
+    marginBottom: 8,
+    width: 160,
+  },
+
+  submitButton: {
+    backgroundColor: "#06d6a0",
+    padding: 12,
+    borderRadius: 6,
+    marginBottom: 8,
+    width: 140,
+    alignItems: "center",
+  },
+
+  submitButtonBlue: {
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: "#003366",
+    padding: 12,
+    borderRadius: 6,
+    marginBottom: 8,
+    width: 140,
+    alignItems: "center",
+  },
+
+  submitText: {
+    color: "#fff",
+    fontWeight: "bold",
+  },
+
+  submitTextBlue: {
+    color: "#003366",
+    fontWeight: "bold",
+  },
+
   visibilityRow: {
     flexDirection: "row",
-    marginBottom: 15,
+    marginVertical: 8,
   },
+
   visibilityButton: {
-    padding: 10,
-    backgroundColor: "#E5E5EA",
-    marginRight: 10,
-    borderRadius: 10,
-  },
-  visibilitySelected: {
-    backgroundColor: "#007AFF",
-  },
-  previewButton: {
-    backgroundColor: "#FF9500",
-    padding: 15,
-    borderRadius: 10,
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  previewBox: {
-    backgroundColor: "white",
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 15,
-  },
-  draftButton: {
-    backgroundColor: "#8E8E93",
-    padding: 15,
-    borderRadius: 10,
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  postButton: {
-    backgroundColor: "#007AFF",
-    padding: 15,
-    borderRadius: 10,
-    alignItems: "center",
+    padding: 8,
+    borderRadius: 6,
+    marginRight: 8,
   },
 });
